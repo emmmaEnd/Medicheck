@@ -55,7 +55,12 @@ class LoginWindow:
         logged = supabase_login(usuario, contrasena)
 
         if logged:
-            messagebox.showinfo("Éxito", "Inicio de sesión correcto.")
-            # Aquí podrás abrir el panel médico
+            self.root.destroy()
+            # abrir historial
+            import tkinter as tk
+            from ui.historial_window import HistorialWindow
+            new_root = tk.Tk()
+            HistorialWindow(new_root, medico_nombre=usuario)
+            new_root.mainloop()
         else:
             messagebox.showerror("Error", "Credenciales incorrectas.")
