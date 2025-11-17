@@ -14,11 +14,10 @@ class HistorialWindow:
         self.root.configure(bg="#ecf0f3")
 
         # Estado actual
-        self.vista = "miniatura"                   # vista actual
-        self.orden_asc = True                      # modo orden
-        self.campo_orden = "id_control"            # campo por default miniatura
-        self.campo_orden_lista = "fecha"           # default en lista
-        self.campo_orden_mini = "id_control"       # default miniatura
+        self.vista = "miniatura"            # "miniatura" o "lista"
+        self.orden_asc = True               # sentido del orden
+        self.campo_orden_mini = "id_control"
+        self.campo_orden_lista = "fecha"
 
         # Paginado (4 x 8)
         self.page_size = 32
@@ -27,10 +26,11 @@ class HistorialWindow:
 
         # Filtros
         self.filtro_texto = tk.StringVar()
-        self.filtro_campo = tk.StringVar()         # combo Orden por
+        self.filtro_campo = tk.StringVar()
 
-        # Datos cargados
-        self.mediciones = []
+        # Datos
+        self.mediciones = []        # todos los registros
+        self.datos_filtrados = []   # resultado de buscar/ordenar
 
         # Imagen por defecto
         self.foto_default = self.cargar_imagen_perfil()
@@ -40,9 +40,9 @@ class HistorialWindow:
         self.crear_barra_lateral()
         self.crear_contenedor_principal()
 
-        # Cargar datos y mostrar
+        # Cargar datos y aplicar filtros por defecto
         self.cargar_datos()
-        self.mostrar_vista()
+        self.limpiar_filtros()
 
     # ==========================================================
     # CARGAR IMAGEN PERFIL
@@ -53,8 +53,8 @@ class HistorialWindow:
             ruta_img = os.path.join(base_dir, "assets", "perfil_default.png")
             if os.path.exists(ruta_img):
                 return tk.PhotoImage(file=ruta_img)
-        except:
-            pass
+        except Exception as e:
+            print("Error cargando imagen de perfil:", e)
         return None
 
     # ==========================================================
@@ -87,10 +87,15 @@ class HistorialWindow:
             bg = "white" if selected else "#2F76FF"
             fg = "#2F76FF" if selected else "white"
             return tk.Button(
-                nav, text=texto, bg=bg, fg=fg,
+                nav,
+                text=texto,
+                bg=bg,
+                fg=fg,
                 font=("Arial", 11, "bold"),
-                relief="solid", bd=1 if not selected else 0,
-                padx=10, pady=3
+                relief="solid",
+                bd=1 if not selected else 0,
+                padx=10,
+                pady=3
             )
 
         nav_btn("Historial", True).grid(row=0, column=0, padx=5)
@@ -98,100 +103,158 @@ class HistorialWindow:
         nav_btn("Estadísticas").grid(row=0, column=2, padx=5)
 
     # ==========================================================
-    # BARRA LATERAL (FILTROS + NAVEGACIÓN)
+    # BARRA LATERAL
     # ==========================================================
     def crear_barra_lateral(self):
         self.sidebar = tk.Frame(self.root, bg="white", width=180)
         self.sidebar.pack(fill="y", side="left")
 
-        # ======================= BUSCAR =======================
-        tk.Label(self.sidebar, text="Buscar", bg="white", fg="#333",
-                 font=("Arial", 11, "bold")).pack(pady=(15, 0))
+        # BUSCAR
+        tk.Label(
+            self.sidebar,
+            text="Buscar",
+            bg="white",
+            fg="#333",
+            font=("Arial", 11, "bold")
+        ).pack(pady=(15, 0))
 
-        self.entry_buscar = tk.Entry(self.sidebar, textvariable=self.filtro_texto,
-                                     width=17, font=("Arial", 10))
+        self.entry_buscar = tk.Entry(
+            self.sidebar,
+            textvariable=self.filtro_texto,
+            width=17,
+            font=("Arial", 10)
+        )
         self.entry_buscar.pack(pady=5)
 
-        # ======================= VISTAS =======================
-        tk.Label(self.sidebar, text="Vistas", bg="white", fg="#333",
-                 font=("Arial", 11, "bold")).pack(pady=(15, 5))
+        # VISTAS
+        tk.Label(
+            self.sidebar,
+            text="Vistas",
+            bg="white",
+            fg="#333",
+            font=("Arial", 11, "bold")
+        ).pack(pady=(15, 5))
 
         frame_vistas = tk.Frame(self.sidebar, bg="white")
         frame_vistas.pack()
 
         self.btn_vista_mini = tk.Button(
-            frame_vistas, text="Miniatura",
+            frame_vistas,
+            text="Miniatura",
             command=lambda: self.cambiar_vista("miniatura"),
-            bg="#2F76FF", fg="white", width=8
+            bg="#2F76FF",
+            fg="white",
+            width=8
         )
         self.btn_vista_mini.grid(row=0, column=0, padx=3)
 
         self.btn_vista_lista = tk.Button(
-            frame_vistas, text="Lista",
+            frame_vistas,
+            text="Lista",
             command=lambda: self.cambiar_vista("lista"),
-            bg="#f1f3f6", fg="#333", width=8
+            bg="#f1f3f6",
+            fg="#333",
+            width=8
         )
         self.btn_vista_lista.grid(row=0, column=1, padx=3)
 
-        # ======================= ORDEN POR =======================
-        tk.Label(self.sidebar, text="Orden por:", bg="white", fg="#333",
-                 font=("Arial", 11, "bold")).pack(pady=(15, 5))
+        # ORDEN POR
+        tk.Label(
+            self.sidebar,
+            text="Orden por:",
+            bg="white",
+            fg="#333",
+            font=("Arial", 11, "bold")
+        ).pack(pady=(15, 5))
 
         self.combo_orden = ttk.Combobox(
-            self.sidebar, textvariable=self.filtro_campo,
-            state="readonly", width=15
+            self.sidebar,
+            textvariable=self.filtro_campo,
+            state="readonly",
+            width=15
         )
         self.combo_orden.pack(pady=5)
 
-        # Modo ASC/DESC
+        # Asc / Desc
         frame_ad = tk.Frame(self.sidebar, bg="white")
         frame_ad.pack()
 
         self.btn_asc = tk.Button(
-            frame_ad, text="Asc", width=7,
+            frame_ad,
+            text="Asc",
+            width=7,
             command=lambda: self.cambiar_orden(True),
-            bg="#2F76FF", fg="white"
+            bg="#2F76FF",
+            fg="white"
         )
         self.btn_asc.grid(row=0, column=0, padx=2)
 
         self.btn_desc = tk.Button(
-            frame_ad, text="Desc", width=7,
+            frame_ad,
+            text="Desc",
+            width=7,
             command=lambda: self.cambiar_orden(False),
-            bg="#f1f3f6", fg="#333"
+            bg="#f1f3f6",
+            fg="#333"
         )
         self.btn_desc.grid(row=0, column=1, padx=2)
 
-        # ======================= BOTÓN BUSCAR =======================
-        self.btn_buscar = tk.Button(
-            self.sidebar, text="BUSCAR",
-            command=self.ejecutar_busqueda,
-            bg="#2F76FF", fg="white", width=15
-        )
-        self.btn_buscar.pack(pady=15)
+        # BOTONES BUSCAR / LIMPIAR
+        frame_buscar = tk.Frame(self.sidebar, bg="white")
+        frame_buscar.pack(pady=15)
 
-        # ======================= PAGINADO =======================
-        tk.Label(self.sidebar, text="Paginado", bg="white", fg="#333",
-                 font=("Arial", 11, "bold")).pack(pady=(10, 5))
+        self.btn_buscar = tk.Button(
+            frame_buscar,
+            text="BUSCAR",
+            command=self.ejecutar_busqueda,
+            bg="#2F76FF",
+            fg="white",
+            width=7
+        )
+        self.btn_buscar.grid(row=0, column=0, padx=3)
+
+        self.btn_limpiar = tk.Button(
+            frame_buscar,
+            text="LIMPIAR",
+            command=self.limpiar_filtros,
+            bg="#f1f3f6",
+            fg="#333",
+            width=7
+        )
+        self.btn_limpiar.grid(row=0, column=1, padx=3)
+
+        # PAGINADO
+        tk.Label(
+            self.sidebar,
+            text="Paginado",
+            bg="white",
+            fg="#333",
+            font=("Arial", 11, "bold")
+        ).pack(pady=(10, 5))
 
         pag = tk.Frame(self.sidebar, bg="white")
         pag.pack()
 
-        tk.Button(pag, text="◀", width=3, command=self.pagina_anterior).grid(row=0, column=0, padx=2)
+        tk.Button(pag, text="◀", width=3,
+                  command=self.pagina_anterior).grid(row=0, column=0, padx=2)
         self.lbl_pagina = tk.Label(pag, text="1 de 1", bg="white")
         self.lbl_pagina.grid(row=0, column=1, padx=2)
-        tk.Button(pag, text="▶", width=3, command=self.pagina_siguiente).grid(row=0, column=2, padx=2)
+        tk.Button(pag, text="▶", width=3,
+                  command=self.pagina_siguiente).grid(row=0, column=2, padx=2)
 
+        # valores iniciales del combo
         self.actualizar_combo_orden()
 
     # ==========================================================
-    # CONTENEDOR PRINCIPAL (CANVAS + BODY)
+    # CONTENEDOR PRINCIPAL
     # ==========================================================
     def crear_contenedor_principal(self):
         self.body_container = tk.Frame(self.root, bg="#ecf0f3")
         self.body_container.pack(fill="both", expand=True)
 
         self.canvas = tk.Canvas(self.body_container, bg="#ecf0f3", highlightthickness=0)
-        self.scrollbar = tk.Scrollbar(self.body_container, orient="vertical", command=self.canvas.yview)
+        self.scrollbar = tk.Scrollbar(self.body_container, orient="vertical",
+                                      command=self.canvas.yview)
         self.canvas.configure(yscrollcommand=self.scrollbar.set)
 
         self.scrollbar.pack(side="right", fill="y")
@@ -200,8 +263,14 @@ class HistorialWindow:
         self.body = tk.Frame(self.canvas, bg="#ecf0f3")
         self.body_window = self.canvas.create_window((0, 0), window=self.body, anchor="nw")
 
-        self.body.bind("<Configure>", lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
-        self.canvas.bind("<Configure>", lambda e: self.canvas.itemconfig(self.body_window, width=e.width))
+        self.body.bind(
+            "<Configure>",
+            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        )
+        self.canvas.bind(
+            "<Configure>",
+            lambda e: self.canvas.itemconfig(self.body_window, width=e.width)
+        )
 
     # ==========================================================
     # CARGAR DATOS SUPABASE
@@ -215,11 +284,12 @@ class HistorialWindow:
 
             self.mediciones = []
             for row in resp.data:
-                alumno = row["tarjeta_alumno"]["alumno"] if row.get("tarjeta_alumno") else {}
+                tarjeta = row.get("tarjeta_alumno") or {}
+                alumno = tarjeta.get("alumno") or {}
 
                 self.mediciones.append({
-                    "id_medicion": row["id_medicion"],
-                    "id_control": row["tarjeta_alumno"]["id_control"] if row.get("tarjeta_alumno") else None,
+                    "id_medicion": row.get("id_medicion"),
+                    "id_control": tarjeta.get("id_control"),
                     "nombre": alumno.get("nombre"),
                     "apellido_paterno": alumno.get("apellido_paterno"),
                     "temperatura": row.get("temperatura"),
@@ -232,27 +302,96 @@ class HistorialWindow:
             print("Supabase error:", e)
             self.mediciones = []
 
+    # ==========================================================
+    # FILTROS / ORDEN
+    # ==========================================================
+    def limpiar_filtros(self):
+        """Resetea texto, orden y vuelve a aplicar con los defaults de la vista."""
+        self.filtro_texto.set("")
+
+        if self.vista == "miniatura":
+            self.campo_orden_mini = "id_control"
+            self.orden_asc = True
+        else:
+            self.campo_orden_lista = "fecha"
+            self.orden_asc = False
+
+        # botones Asc / Desc
+        if self.orden_asc:
+            self.btn_asc.config(bg="#2F76FF", fg="white")
+            self.btn_desc.config(bg="#f1f3f6", fg="#333")
+        else:
+            self.btn_desc.config(bg="#2F76FF", fg="white")
+            self.btn_asc.config(bg="#f1f3f6", fg="#333")
+
+        self.actualizar_combo_orden()
         self.ejecutar_busqueda()
 
-    # ==========================================================
-    # FILTRADO Y ORDENADO
-    # ==========================================================
     def ejecutar_busqueda(self):
+        """Aplica filtro de texto + orden según la vista. Solo se llama con el botón BUSCAR o LIMPIAR."""
         texto = self.filtro_texto.get().strip().lower()
 
-        datos = []
-        for m in self.mediciones:
-            if (texto in str(m["id_control"]).lower()
-                or texto in (m["nombre"] or "").lower()
-                or texto in (m["apellido_paterno"] or "").lower()):
-                datos.append(m)
+        # Campo seleccionado en el combo
+        combo_value = self.filtro_campo.get().strip()
 
-        # ordenar
-        campo = self.campo_orden_mini if self.vista == "miniatura" else self.campo_orden_lista
+        if self.vista == "miniatura":
+            if not combo_value:
+                combo_value = "id_control"
+            self.campo_orden_mini = combo_value
+
+            # Agrupar por alumno (1 card por id_control)
+            alumnos = {}
+            for m in self.mediciones:
+                idc = m.get("id_control")
+                if idc is None:
+                    continue
+
+                idc_str = str(idc).lower()
+                nom = (m.get("nombre") or "").lower()
+                ape = (m.get("apellido_paterno") or "").lower()
+
+                if texto in idc_str or texto in nom or texto in ape:
+                    if idc not in alumnos:
+                        # basta con guardar un registro representativo
+                        alumnos[idc] = {
+                            "id_control": idc,
+                            "nombre": m.get("nombre"),
+                            "apellido_paterno": m.get("apellido_paterno"),
+                            # el resto por si luego quieres algo
+                            "id_medicion": m.get("id_medicion"),
+                            "temperatura": m.get("temperatura"),
+                            "pulso": m.get("pulso"),
+                            "oxigenacion": m.get("oxigenacion"),
+                            "fecha": m.get("fecha"),
+                        }
+
+            datos = list(alumnos.values())
+            campo = self.campo_orden_mini
+
+        else:  # vista lista → 1 a 1 registro
+            if not combo_value:
+                combo_value = "fecha"
+            self.campo_orden_lista = combo_value
+
+            datos = []
+            for m in self.mediciones:
+                idc_str = str(m.get("id_control") or "").lower()
+                nom = (m.get("nombre") or "").lower()
+                ape = (m.get("apellido_paterno") or "").lower()
+
+                if texto in idc_str or texto in nom or texto in ape:
+                    datos.append(m)
+
+            campo = self.campo_orden_lista
+
+        # Ordenar
+        def key_fn(x):
+            val = x.get(campo)
+            return (val is None, val)
 
         datos = sorted(
             datos,
-            key=lambda x: (x[campo] is None, x[campo]),
+            key=key_fn,
             reverse=not self.orden_asc
         )
 
@@ -262,9 +401,6 @@ class HistorialWindow:
         self.actualizar_label_pagina()
         self.mostrar_vista()
 
-    # ==========================================================
-    # UTILIDADES
-    # ==========================================================
     def actualizar_combo_orden(self):
         if self.vista == "miniatura":
             self.combo_orden["values"] = ["id_control", "nombre"]
@@ -276,7 +412,13 @@ class HistorialWindow:
             ]
             self.combo_orden.set(self.campo_orden_lista)
 
+    # ==========================================================
+    # CAMBIOS DE ESTADO (VISTA / ORDEN / PÁGINA)
+    # ==========================================================
     def cambiar_vista(self, vista):
+        if self.vista == vista:
+            return
+
         self.vista = vista
 
         if vista == "miniatura":
@@ -286,10 +428,11 @@ class HistorialWindow:
             self.btn_vista_lista.config(bg="#2F76FF", fg="white")
             self.btn_vista_mini.config(bg="#f1f3f6", fg="#333")
 
-        self.actualizar_combo_orden()
-        self.ejecutar_busqueda()
+        # Al cambiar de vista, resetear filtros a sus defaults
+        self.limpiar_filtros()
 
     def cambiar_orden(self, asc):
+        # Solo cambia la bandera; se aplicará cuando se pulse BUSCAR o LIMPIAR
         self.orden_asc = asc
         if asc:
             self.btn_asc.config(bg="#2F76FF", fg="white")
@@ -313,17 +456,16 @@ class HistorialWindow:
     def actualizar_label_pagina(self):
         self.lbl_pagina.config(text=f"{self.current_page} de {self.total_pages}")
 
+    # ==========================================================
+    # PINTAR VISTAS
+    # ==========================================================
     def limpiar_body(self):
         for w in self.body.winfo_children():
             w.destroy()
 
-    # ==========================================================
-    # MOSTRAR VISTA
-    # ==========================================================
     def mostrar_vista(self):
         self.limpiar_body()
 
-        # segmentación por página
         start = (self.current_page - 1) * self.page_size
         end = start + self.page_size
         datos_pagina = self.datos_filtrados[start:end]
@@ -333,9 +475,7 @@ class HistorialWindow:
         else:
             self.mostrar_lista(datos_pagina)
 
-    # ==========================================================
-    # MINIATURA
-    # ==========================================================
+    # ------------------ MINIATURA ------------------ #
     def mostrar_miniatura(self, datos):
         grid = tk.Frame(self.body, bg="#ecf0f3")
         grid.pack(fill="x", expand=True, padx=20, pady=20)
@@ -343,41 +483,56 @@ class HistorialWindow:
         for col in range(4):
             grid.grid_columnconfigure(col, weight=1, uniform="col")
 
-        filas = 8
-        idx = 0
+        total_slots = self.page_size  # 32
+        for idx in range(total_slots):
+            r = idx // 4
+            c = idx % 4
 
-        for r in range(filas):
-            for c in range(4):
-                card = tk.Frame(
-                    grid, bg="white",
-                    highlightbackground="#dcdcdc", highlightthickness=1
+            card = tk.Frame(
+                grid,
+                bg="white",
+                highlightbackground="#dcdcdc",
+                highlightthickness=1
+            )
+            card.grid(row=r, column=c, padx=10, pady=10, sticky="we")
+            card.grid_propagate(False)
+            card.bind("<Configure>", lambda e, f=card: self.redimensionar_card(f))
+
+            if idx < len(datos):
+                info = datos[idx]
+
+                img_slot = tk.Label(card, bg="white")
+                img_slot.pack(fill="x")
+                img_slot.pack_propagate(False)
+                img_slot.bind(
+                    "<Configure>",
+                    lambda e, lab=img_slot: self.redimensionar_imagen(lab)
                 )
-                card.grid(row=r, column=c, padx=10, pady=10, sticky="we")
-                card.grid_propagate(False)
-                card.bind("<Configure>", lambda e, f=card: self.redimensionar_card(f))
 
-                if idx < len(datos):
-                    info = datos[idx]
+                tk.Label(
+                    card,
+                    text=info["id_control"],
+                    bg="white",
+                    fg="#2F76FF",
+                    font=("Arial", 12, "bold")
+                ).pack()
 
-                    img_slot = tk.Label(card, bg="white")
-                    img_slot.pack(fill="x")
-                    img_slot.pack_propagate(False)
-                    img_slot.bind("<Configure>", lambda e, lab=img_slot: self.redimensionar_imagen(lab))
+                tk.Label(
+                    card,
+                    text=f"{info['nombre']} {info['apellido_paterno']}",
+                    bg="white",
+                    fg="#555",
+                    font=("Arial", 11)
+                ).pack(pady=(2, 6))
+            else:
+                tk.Label(card, bg="white").pack(fill="both", expand=True)
 
-                    tk.Label(card, text=info["id_control"], bg="white",
-                             fg="#2F76FF", font=("Arial", 12, "bold")).pack()
-
-                    tk.Label(card, text=f"{info['nombre']} {info['apellido_paterno']}",
-                             bg="white", fg="#555", font=("Arial", 11)).pack()
-
-                idx += 1
-
-    # ==========================================================
-    # LISTA (CON FECHA)
-    # ==========================================================
+    # ------------------ LISTA ------------------ #
     def mostrar_lista(self, datos):
-        columns = ("id_medicion", "id_control", "nombre", "apellido_paterno",
-                   "temperatura", "pulso", "oxigenacion", "fecha")
+        columns = (
+            "id_medicion", "id_control", "nombre", "apellido_paterno",
+            "temperatura", "pulso", "oxigenacion", "fecha"
+        )
 
         table = ttk.Treeview(self.body, columns=columns, show="headings")
 
@@ -387,23 +542,27 @@ class HistorialWindow:
 
         for m in datos:
             fecha_texto = ""
-            if m["fecha"]:
+            if m.get("fecha"):
                 try:
                     fecha_dt = datetime.fromisoformat(m["fecha"].replace("Z", ""))
                     fecha_texto = fecha_dt.strftime("%Y-%m-%d %H:%M")
-                except:
+                except Exception:
                     fecha_texto = m["fecha"]
 
-            table.insert("", "end", values=(
-                m["id_medicion"],
-                m["id_control"],
-                m["nombre"],
-                m["apellido_paterno"],
-                m["temperatura"],
-                m["pulso"],
-                m["oxigenacion"],
-                fecha_texto
-            ))
+            table.insert(
+                "",
+                "end",
+                values=(
+                    m.get("id_medicion"),
+                    m.get("id_control"),
+                    m.get("nombre"),
+                    m.get("apellido_paterno"),
+                    m.get("temperatura"),
+                    m.get("pulso"),
+                    m.get("oxigenacion"),
+                    fecha_texto
+                )
+            )
 
         table.pack(fill="both", expand=True, pady=10)
 
