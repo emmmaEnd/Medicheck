@@ -279,7 +279,8 @@ class HistorialWindow:
         try:
             resp = supabase.table("medicion").select(
                 "id_medicion, temperatura, pulso, oxigenacion, fecha,"
-                "tarjeta_alumno(id_control, alumno(nombre, apellido_paterno))"
+                "tarjeta_alumno(id_control, "
+                "alumno(nombre, apellido_paterno, fecha_registro, foto_url))"
             ).execute()
 
             self.mediciones = []
@@ -295,7 +296,9 @@ class HistorialWindow:
                     "temperatura": row.get("temperatura"),
                     "pulso": row.get("pulso"),
                     "oxigenacion": row.get("oxigenacion"),
-                    "fecha": row.get("fecha")
+                    "fecha": row.get("fecha"),
+                    "fecha_registro": alumno.get("fecha_registro"),
+                    "foto_url": alumno.get("foto_url"),
                 })
 
         except Exception as e:
@@ -328,10 +331,11 @@ class HistorialWindow:
         self.ejecutar_busqueda()
 
     def ejecutar_busqueda(self):
-        """Aplica filtro de texto + orden según la vista. Solo se llama con el botón BUSCAR o LIMPIAR."""
+        """
+        Aplica filtro de texto + orden según la vista.
+        Solo se llama con los botones BUSCAR o LIMPIAR.
+        """
         texto = self.filtro_texto.get().strip().lower()
-
-        # Campo seleccionado en el combo
         combo_value = self.filtro_campo.get().strip()
 
         if self.vista == "miniatura":
@@ -352,17 +356,17 @@ class HistorialWindow:
 
                 if texto in idc_str or texto in nom or texto in ape:
                     if idc not in alumnos:
-                        # basta con guardar un registro representativo
                         alumnos[idc] = {
                             "id_control": idc,
                             "nombre": m.get("nombre"),
                             "apellido_paterno": m.get("apellido_paterno"),
-                            # el resto por si luego quieres algo
                             "id_medicion": m.get("id_medicion"),
                             "temperatura": m.get("temperatura"),
                             "pulso": m.get("pulso"),
                             "oxigenacion": m.get("oxigenacion"),
                             "fecha": m.get("fecha"),
+                            "fecha_registro": m.get("fecha_registro"),
+                            "foto_url": m.get("foto_url"),
                         }
 
             datos = list(alumnos.values())
@@ -492,7 +496,8 @@ class HistorialWindow:
                 grid,
                 bg="white",
                 highlightbackground="#dcdcdc",
-                highlightthickness=1
+                highlightthickness=1,
+                cursor="hand2"
             )
             card.grid(row=r, column=c, padx=10, pady=10, sticky="we")
             card.grid_propagate(False)
@@ -500,6 +505,7 @@ class HistorialWindow:
 
             if idx < len(datos):
                 info = datos[idx]
+                idc = info.get("id_control")
 
                 img_slot = tk.Label(card, bg="white")
                 img_slot.pack(fill="x")
@@ -509,21 +515,33 @@ class HistorialWindow:
                     lambda e, lab=img_slot: self.redimensionar_imagen(lab)
                 )
 
-                tk.Label(
+                lbl_id = tk.Label(
                     card,
-                    text=info["id_control"],
+                    text=idc,
                     bg="white",
                     fg="#2F76FF",
                     font=("Arial", 12, "bold")
-                ).pack()
+                )
+                lbl_id.pack()
 
-                tk.Label(
+                lbl_nom = tk.Label(
                     card,
-                    text=f"{info['nombre']} {info['apellido_paterno']}",
+                    text=f"{info.get('nombre') or ''} {info.get('apellido_paterno') or ''}",
                     bg="white",
                     fg="#555",
                     font=("Arial", 11)
-                ).pack(pady=(2, 6))
+                )
+                lbl_nom.pack(pady=(2, 6))
+
+                # hacer clickable la card y sus hijos
+                def bind_detalle(widget, ic=idc):
+                    widget.bind(
+                        "<Button-1>",
+                        lambda e, i=ic: self.abrir_detalle_alumno(i)
+                    )
+
+                for w in (card, img_slot, lbl_id, lbl_nom):
+                    bind_detalle(w)
             else:
                 tk.Label(card, bg="white").pack(fill="both", expand=True)
 
@@ -566,6 +584,9 @@ class HistorialWindow:
 
         table.pack(fill="both", expand=True, pady=10)
 
+        # doble clic abre detalle de registro
+        table.bind("<Double-1>", lambda e, t=table: self.on_table_doble_click(t))
+
     # ==========================================================
     # REDIMENSIONAMIENTO
     # ==========================================================
@@ -591,3 +612,328 @@ class HistorialWindow:
         img = self.foto_default.subsample(f, f)
         label.config(image=img)
         label.image = img
+
+    # ==========================================================
+    # DETALLES (ALUMNO / REGISTRO)
+    # ==========================================================
+    def centrar_ventana(self, win, ancho, alto):
+        win.update_idletasks()
+        sw = win.winfo_screenwidth()
+        sh = win.winfo_screenheight()
+        x = (sw // 2) - (ancho // 2)
+        y = (sh // 2) - (alto // 2)
+        win.geometry(f"{ancho}x{alto}+{x}+{y}")
+
+    def on_table_doble_click(self, tree):
+        item_id = tree.focus()
+        if not item_id:
+            return
+        values = tree.item(item_id, "values")
+        if not values:
+            return
+        id_medicion = values[0]
+        reg = next(
+            (m for m in self.mediciones
+             if str(m.get("id_medicion")) == str(id_medicion)),
+            None
+        )
+        if reg:
+            self.abrir_detalle_registro(reg)
+
+    # ---------- Detalle Alumno (desde miniaturas) ----------
+    def abrir_detalle_alumno(self, id_control):
+        registros = [
+            m for m in self.mediciones
+            if m.get("id_control") == id_control
+        ]
+        if not registros:
+            return
+
+        # ordenar registros por fecha desc para mostrar arriba los recientes
+        registros = sorted(
+            registros,
+            key=lambda m: (m.get("fecha") is None, m.get("fecha")),
+            reverse=True
+        )
+
+        ref = registros[0]
+        nombre = (ref.get("nombre") or "")
+        ape = (ref.get("apellido_paterno") or "")
+        nombre_completo = (nombre + " " + ape).strip()
+
+        fecha_registro = ref.get("fecha_registro")
+        fecha_reg_texto = ""
+        if fecha_registro:
+            try:
+                fr = datetime.fromisoformat(fecha_registro.replace("Z", ""))
+                fecha_reg_texto = fr.strftime("%Y-%m-%d %H:%M")
+            except Exception:
+                fecha_reg_texto = str(fecha_registro)
+
+        win = tk.Toplevel(self.root)
+        win.title(f"Alumno {id_control}")
+        self.centrar_ventana(win, 700, 500)
+        win.configure(bg="#ecf0f3")
+
+        cont = tk.Frame(win, bg="#ecf0f3")
+        cont.pack(fill="both", expand=True, padx=10, pady=10)
+
+        tk.Label(
+            cont,
+            text=f"Alumno: {id_control}",
+            bg="#ecf0f3",
+            fg="#333",
+            font=("Arial", 16, "bold")
+        ).pack(pady=(0, 10))
+
+        # Parte superior: foto + datos
+        top = tk.Frame(cont, bg="#ecf0f3")
+        top.pack(fill="x", pady=5)
+
+        # Foto
+        frame_foto = tk.Frame(top, bg="white", width=140, height=140,
+                              highlightbackground="#dcdcdc", highlightthickness=1)
+        frame_foto.pack(side="left", padx=20)
+        frame_foto.pack_propagate(False)
+
+        lbl_foto = tk.Label(frame_foto, bg="white")
+        lbl_foto.pack(fill="both", expand=True)
+        lbl_foto.bind("<Configure>", lambda e, lab=lbl_foto: self.redimensionar_imagen(lab))
+
+        # Datos alumno
+        datos_alumno = tk.Frame(top, bg="#ecf0f3")
+        datos_alumno.pack(side="left", padx=10, pady=10, anchor="nw")
+
+        tk.Label(
+            datos_alumno,
+            text=f"Nombre completo: {nombre_completo}",
+            bg="#ecf0f3",
+            fg="#333",
+            font=("Arial", 11)
+        ).pack(anchor="w")
+
+        tk.Label(
+            datos_alumno,
+            text=f"Fecha registro: {fecha_reg_texto or '—'}",
+            bg="#ecf0f3",
+            fg="#333",
+            font=("Arial", 11)
+        ).pack(anchor="w", pady=(3, 0))
+
+        # Filtros para minilista
+        frame_filtros = tk.Frame(cont, bg="#ecf0f3")
+        frame_filtros.pack(fill="x", pady=(10, 2))
+
+        tk.Label(
+            frame_filtros,
+            text="Orden por:",
+            bg="#ecf0f3",
+            fg="#333",
+            font=("Arial", 10, "bold")
+        ).pack(side="left", padx=(5, 3))
+
+        var_campo = tk.StringVar(value="fecha")
+        combo_campo = ttk.Combobox(
+            frame_filtros,
+            textvariable=var_campo,
+            state="readonly",
+            width=12,
+            values=["fecha", "id_medicion", "temperatura", "pulso", "oxigenacion"]
+        )
+        combo_campo.pack(side="left")
+
+        tk.Label(
+            frame_filtros,
+            text="  Orden:",
+            bg="#ecf0f3",
+            fg="#333",
+            font=("Arial", 10, "bold")
+        ).pack(side="left", padx=(10, 3))
+
+        var_sentido = tk.StringVar(value="DESC")
+        combo_sent = ttk.Combobox(
+            frame_filtros,
+            textvariable=var_sentido,
+            state="readonly",
+            width=6,
+            values=["ASC", "DESC"]
+        )
+        combo_sent.pack(side="left")
+
+        btn_aplicar = tk.Button(
+            frame_filtros,
+            text="Aplicar",
+            bg="#2F76FF",
+            fg="white",
+            width=8
+        )
+        btn_aplicar.pack(side="left", padx=10)
+
+        # Minilista de registros del alumno
+        frame_lista = tk.Frame(cont, bg="#ecf0f3")
+        frame_lista.pack(fill="both", expand=True, pady=(5, 0))
+
+        cols = ("id_medicion", "fecha", "temperatura", "pulso", "oxigenacion")
+        tabla = ttk.Treeview(frame_lista, columns=cols, show="headings", height=8)
+
+        for col in cols:
+            tabla.heading(col, text=col.replace("_", " ").title())
+            tabla.column(col, anchor="center", width=110)
+
+        tabla.pack(fill="both", expand=True)
+
+        # Doble clic en minilista → detalle registro
+        tabla.bind("<Double-1>", lambda e, t=tabla: self.on_table_doble_click(t))
+
+        def refrescar_minilista():
+            campo = var_campo.get()
+            asc = (var_sentido.get() == "ASC")
+
+            def key_min(r):
+                v = r.get(campo)
+                return (v is None, v)
+
+            ordenados = sorted(
+                registros,
+                key=key_min,
+                reverse=not asc
+            )
+
+            for item in tabla.get_children():
+                tabla.delete(item)
+
+            for m in ordenados:
+                fecha_texto = ""
+                if m.get("fecha"):
+                    try:
+                        fd = datetime.fromisoformat(m["fecha"].replace("Z", ""))
+                        fecha_texto = fd.strftime("%Y-%m-%d %H:%M")
+                    except Exception:
+                        fecha_texto = m["fecha"]
+
+                tabla.insert(
+                    "",
+                    "end",
+                    values=(
+                        m.get("id_medicion"),
+                        fecha_texto,
+                        m.get("temperatura"),
+                        m.get("pulso"),
+                        m.get("oxigenacion")
+                    )
+                )
+
+        btn_aplicar.config(command=refrescar_minilista)
+        refrescar_minilista()
+
+    # ---------- Detalle Registro (desde lista y minilista) ----------
+    def abrir_detalle_registro(self, reg):
+        if not reg:
+            return
+
+        win = tk.Toplevel(self.root)
+        win.title(f"Registro {reg.get('id_medicion')}")
+        self.centrar_ventana(win, 550, 430)
+        win.configure(bg="#ecf0f3")
+
+        cont = tk.Frame(win, bg="#ecf0f3")
+        cont.pack(fill="both", expand=True, padx=10, pady=10)
+
+        tk.Label(
+            cont,
+            text=f"Registro {reg.get('id_medicion')}",
+            bg="#ecf0f3",
+            fg="#333",
+            font=("Arial", 16, "bold")
+        ).pack(pady=(0, 10))
+
+        fecha_texto = ""
+        if reg.get("fecha"):
+            try:
+                fd = datetime.fromisoformat(reg["fecha"].replace("Z", ""))
+                fecha_texto = fd.strftime("%Y-%m-%d %H:%M")
+            except Exception:
+                fecha_texto = reg["fecha"]
+
+        tk.Label(
+            cont,
+            text=f"Fecha de medida: {fecha_texto or '—'}",
+            bg="#ecf0f3",
+            fg="#333",
+            font=("Arial", 11)
+        ).pack(pady=(0, 10))
+
+        # Panel con temperatura / pulso / oxigenación
+        panel = tk.Frame(cont, bg="#ecf0f3")
+        panel.pack(pady=5)
+
+        def caja_indicador(parent, titulo, valor):
+            frame = tk.Frame(parent, bg="white",
+                             highlightbackground="#dcdcdc", highlightthickness=1)
+            frame.pack(side="left", padx=5)
+            tk.Label(
+                frame,
+                text=titulo,
+                bg="white",
+                fg="#333",
+                font=("Arial", 10, "bold")
+            ).pack(padx=10, pady=(5, 0))
+            tk.Label(
+                frame,
+                text=valor,
+                bg="white",
+                fg="#333",
+                font=("Arial", 11)
+            ).pack(padx=10, pady=(0, 5))
+
+        temp_val = f"{reg.get('temperatura') or '—'} °C"
+        pulso_val = f"{reg.get('pulso') or '—'} bpm"
+        oxi_val = f"{reg.get('oxigenacion') or '—'} %"
+
+        caja_indicador(panel, "Temperatura", temp_val)
+        caja_indicador(panel, "Ritmo", pulso_val)
+        caja_indicador(panel, "Oxigenación", oxi_val)
+
+        # Parte inferior: datos alumno + foto
+        bottom = tk.Frame(cont, bg="#ecf0f3")
+        bottom.pack(fill="x", expand=True, pady=(20, 0))
+
+        info_alumno = tk.Frame(bottom, bg="#ecf0f3")
+        info_alumno.pack(side="left", padx=20, anchor="nw")
+
+        nombre = (reg.get("nombre") or "")
+        ape = (reg.get("apellido_paterno") or "")
+        nombre_completo = (nombre + " " + ape).strip()
+
+        tk.Label(
+            info_alumno,
+            text="Alumno:",
+            bg="#ecf0f3",
+            fg="#333",
+            font=("Arial", 11, "bold")
+        ).pack(anchor="w")
+
+        tk.Label(
+            info_alumno,
+            text=f"{reg.get('id_control') or ''}",
+            bg="#ecf0f3",
+            fg="#333",
+            font=("Arial", 11)
+        ).pack(anchor="w")
+
+        tk.Label(
+            info_alumno,
+            text=nombre_completo,
+            bg="#ecf0f3",
+            fg="#333",
+            font=("Arial", 11)
+        ).pack(anchor="w", pady=(0, 5))
+
+        frame_foto = tk.Frame(bottom, bg="white", width=120, height=120,
+                              highlightbackground="#dcdcdc", highlightthickness=1)
+        frame_foto.pack(side="right", padx=20)
+        frame_foto.pack_propagate(False)
+
+        lbl_foto = tk.Label(frame_foto, bg="white")
+        lbl_foto.pack(fill="both", expand=True)
+        lbl_foto.bind("<Configure>", lambda e, lab=lbl_foto: self.redimensionar_imagen(lab))
