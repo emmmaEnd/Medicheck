@@ -4,6 +4,7 @@ import tkinter as tk
 from tkinter import ttk
 from datetime import datetime
 from services.supabase_client import supabase
+from ui.estadisticas_window import EstadisticasApp
 
 
 class HistorialWindow:
@@ -83,7 +84,7 @@ class HistorialWindow:
         nav = tk.Frame(self.appbar, bg="#2F76FF")
         nav.place(x=300, y=22)
 
-        def nav_btn(texto, selected=False):
+        def nav_btn(texto, selected=False, command=None):
             bg = "white" if selected else "#2F76FF"
             fg = "#2F76FF" if selected else "white"
             return tk.Button(
@@ -95,12 +96,14 @@ class HistorialWindow:
                 relief="solid",
                 bd=1 if not selected else 0,
                 padx=10,
-                pady=3
+                pady=3,
+                command=command
             )
+
 
         nav_btn("Historial", True).grid(row=0, column=0, padx=5)
         nav_btn("Alertas").grid(row=0, column=1, padx=5)
-        nav_btn("Estadísticas").grid(row=0, column=2, padx=5)
+        nav_btn("Estadísticas", command=self.abrir_estadisticas).grid(row=0, column=2, padx=5)
 
     # ==========================================================
     # BARRA LATERAL
@@ -937,3 +940,7 @@ class HistorialWindow:
         lbl_foto = tk.Label(frame_foto, bg="white")
         lbl_foto.pack(fill="both", expand=True)
         lbl_foto.bind("<Configure>", lambda e, lab=lbl_foto: self.redimensionar_imagen(lab))
+
+    def abrir_estadisticas(self):
+        self.root.destroy()
+        EstadisticasApp().mainloop()
